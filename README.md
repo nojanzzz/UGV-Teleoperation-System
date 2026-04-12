@@ -2,7 +2,7 @@
 
 > **Low-Latency Full-Stack Control Pipeline for Unmanned Ground Vehicles**
 
-![Mockup](docs/assets/mockup.png)
+![Mockup](docs/assets/demo.gif)
 
 [![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Python](https://img.shields.io/badge/Python-3.9+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
