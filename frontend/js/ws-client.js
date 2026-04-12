@@ -1,6 +1,7 @@
 // ws-client.js — WebSocket connection manager
 
-const WS_URL = `ws://${location.host}/ws`;
+const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+const WS_URL = `${protocol}//${window.location.host}/ws`;
 let ws = null;
 let reconnectTimer = null;
 let lastTelemetry = null;
