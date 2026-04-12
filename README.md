@@ -76,7 +76,7 @@ graph TD
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/ugv-teleoperation.git
+git clone https://github.com/nojanzzz/UGV-Teleoperation-System.git
 cd ugv-teleoperation
 
 # Setup Virtual Environment (Recommended)
