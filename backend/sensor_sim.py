@@ -49,9 +49,11 @@ class SensorSimulator:
         load = abs(self.ugv._throttle)
         self._battery = max(0.0, self._battery - self._battery_drain_rate * (1 + load * 3) * dt * 10)
 
-        # Auto E-STOP at 0%
-        if self._battery <= 0.0 and not self.ugv._estop:
-            self.ugv.emergency_stop()
+        # Auto recharge at 0%
+        if self._battery <= 0.0:
+            print("[INFO] Battery empty, auto-recharging to 100%...")
+            self.recharge(100.0)
+            self._low_battery_warned = False
 
         # Save battery to file every 10 seconds
         if now - self._last_save > 10:

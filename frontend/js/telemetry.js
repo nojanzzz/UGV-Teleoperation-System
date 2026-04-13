@@ -49,7 +49,15 @@ function onTelemetry(msg) {
     batBar.className = "battery-bar";
     if (bat.percent < 20) batBar.classList.add("danger");
     else if (bat.percent < 40) batBar.classList.add("warn");
-    if (bat.percent < 20 && !isEstop) addLog("WARNING: Battery low " + bat.percent.toFixed(0) + "%");
+    
+    // Log warning only when percentage integer changes to avoid spam
+    const floorBat = Math.floor(bat.percent);
+    if (bat.percent < 20 && !isEstop && floorBat !== window.lastBatteryLog) {
+      addLog("WARNING: Battery low " + bat.percent.toFixed(0) + "%");
+      window.lastBatteryLog = floorBat;
+    } else if (bat.percent >= 20) {
+      window.lastBatteryLog = null;
+    }
   }
 
   // System
