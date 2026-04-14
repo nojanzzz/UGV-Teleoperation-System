@@ -109,6 +109,6 @@ To transition from simulation to a physical robot, simply update the interface m
 
 **Naufal Auzan R**
 Computer Engineering, Vocational School IPB University
-[Portfolio](your-portfolio-url) | [LinkedIn](your-linkedin-url)
+[Portfolio](https://port-jan.vercel.app/) | [LinkedIn](https://www.linkedin.com/in/naufalauzanr/)
 
 ---
