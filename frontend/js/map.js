@@ -1,10 +1,15 @@
-// map.js — Leaflet map, UGV marker, waypoints
+// map.js - Leaflet map, UGV marker, waypoints
 
-const UGV_START = [-6.5891928803930915, 106.80600417337182]; // IPB University area
-let map, ugvMarker, ugvIcon, trailLine;
+const UGV_START = [-6.5891928803930915, 106.80600417337182];
+let map, ugvMarker, ugvIcon, trailLine, routeLine, activeRouteLine;
 let trailPoints = [];
 let waypoints = [];
 let wpMarkers = [];
+let lastVehicleState = null;
+
+function getWaypointCount() {
+  return waypoints.length;
+}
 
 function initMap() {
   map = L.map("map", {
@@ -21,19 +26,45 @@ function initMap() {
 
   ugvIcon = L.divIcon({
     className: "",
-    html: `<svg width="28" height="28" viewBox="0 0 28 28" xmlns="http://www.w3.org/2000/svg">
-      <polygon points="14,2 24,24 14,19 4,24" fill="#00c8ff" stroke="#0d1117" stroke-width="1.5"/>
+    html: `<svg width="30" height="30" viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
+      <polygon points="15,2 26,26 15,20 4,26" fill="#46b9d8" stroke="#0b0f14" stroke-width="1.5"/>
     </svg>`,
-    iconAnchor: [14, 14],
+    iconAnchor: [15, 15],
   });
 
   ugvMarker = L.marker(UGV_START, { icon: ugvIcon }).addTo(map);
   ugvMarker.bindPopup("<b style='font-family:monospace'>UGV-v1</b>");
 
-  // Fetch real starting position from backend and re-center map
+  trailLine = L.polyline([], {
+    color: "#46b9d8",
+    weight: 1.5,
+    opacity: 0.55,
+    dashArray: "4 5",
+  }).addTo(map);
+
+  routeLine = L.polyline([], {
+    color: "#d7a84f",
+    weight: 2,
+    opacity: 0.75,
+  }).addTo(map);
+
+  activeRouteLine = L.polyline([], {
+    color: "#64d98b",
+    weight: 2.5,
+    opacity: 0.85,
+  }).addTo(map);
+
+  map.on("click", (e) => {
+    if (clientRole !== "controller") {
+      addLog("Observer mode - waypoint editing disabled");
+      return;
+    }
+    addWaypointToMap(e.latlng.lat, e.latlng.lng, true);
+  });
+
   fetch("/api/status")
-    .then(r => r.json())
-    .then(d => {
+    .then((r) => r.json())
+    .then((d) => {
       const lat = d.state.lat;
       const lng = d.state.lng;
       map.setView([lat, lng], 18);
@@ -41,40 +72,39 @@ function initMap() {
     })
     .catch(() => {});
 
-  trailLine = L.polyline([], {
-    color: "#00c8ff",
-    weight: 1.5,
-    opacity: 0.5,
-    dashArray: "4 4",
-  }).addTo(map);
+  syncWaypointsFromServer();
+}
 
-  map.on("click", (e) => {
-    if (currentMode !== "auto") {
-      addLog("Switch to AUTONOMOUS mode to set waypoints");
-      return;
-    }
-    addWaypointToMap(e.latlng.lat, e.latlng.lng, true);
-  });
-
-  // Remove Leaflet attribution element after it renders
-  setTimeout(() => {
-    document.querySelectorAll(".leaflet-control-attribution").forEach(el => el.remove());
-  }, 300);
+function syncWaypointsFromServer() {
+  apiFetch("/api/waypoints")
+    .then((r) => r.json())
+    .then((d) => {
+      clearLocalWaypoints();
+      (d.waypoints || []).forEach((wp) => addWaypointToMap(wp.lat, wp.lng, false));
+      refreshAllMarkers();
+      renderWaypointList();
+      updateRouteLines();
+    })
+    .catch(() => {});
 }
 
 function makeWpIcon(number, status) {
-  // status: 'pending' | 'active' | 'reached'
-  const bg = status === "reached" ? "#2e4460"
-           : status === "active"  ? "#00c8ff"
-           : "#ffaa00";
-  const color = status === "active" ? "#0d1117" : status === "reached" ? "#4a6278" : "#0d1117";
+  const bg = status === "reached" ? "#293646"
+    : status === "active" ? "#64d98b"
+    : "#d7a84f";
+  const color = status === "reached" ? "#6f7d8c" : "#0b0f14";
   return L.divIcon({
     className: "",
-    html: `<div style="background:${bg};color:${color};font-family:monospace;font-size:10px;font-weight:bold;
-      width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-      border:1.5px solid #0d1117;transition:background 0.2s;">${number}</div>`,
+    html: `<div class="wp-marker ${status}" style="background:${bg};color:${color};">${number}</div>`,
     iconAnchor: [10, 10],
   });
+}
+
+function clearLocalWaypoints() {
+  wpMarkers.forEach((m) => map.removeLayer(m));
+  waypoints = [];
+  wpMarkers = [];
+  updateRouteLines();
 }
 
 function refreshAllMarkers() {
@@ -89,53 +119,96 @@ function refreshAllMarkers() {
 
 function addWaypointToMap(lat, lng, sendToServer = false) {
   const idx = waypoints.length;
-  waypoints.push({ lat, lng });
+  const wp = { lat, lng };
+  waypoints.push(wp);
 
-  const m = L.marker([lat, lng], { icon: makeWpIcon(idx + 1, "pending") }).addTo(map);
-  m.bindPopup(`<span style='font-family:monospace'>WP ${idx + 1}<br>${lat.toFixed(6)}, ${lng.toFixed(6)}</span>`);
-  wpMarkers.push(m);
+  const marker = L.marker([lat, lng], {
+    icon: makeWpIcon(idx + 1, "pending"),
+    draggable: true,
+  }).addTo(map);
+
+  marker.bindPopup(`<span style='font-family:monospace'>WP ${idx + 1}<br>${lat.toFixed(6)}, ${lng.toFixed(6)}</span>`);
+  marker.on("dragend", () => {
+    if (clientRole !== "controller") {
+      marker.setLatLng([wp.lat, wp.lng]);
+      addLog("Observer mode - waypoint editing disabled");
+      return;
+    }
+    const pos = marker.getLatLng();
+    const currentIndex = wpMarkers.indexOf(marker);
+    if (currentIndex < 0) return;
+    waypoints[currentIndex] = { lat: pos.lat, lng: pos.lng };
+    updateWaypointOnServer(currentIndex, pos.lat, pos.lng);
+    refreshAllMarkers();
+    renderWaypointList();
+    updateRouteLines();
+  });
+  wpMarkers.push(marker);
 
   if (sendToServer) {
     wsSend({ type: "waypoint_add", lat, lng });
     addLog(`Waypoint ${idx + 1} added: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
   }
 
+  refreshAllMarkers();
   renderWaypointList();
+  updateRouteLines();
+}
+
+function updateWaypointOnServer(index, lat, lng) {
+  apiFetch(`/api/waypoints/${index}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ lat, lng }),
+  })
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d.ok) addLog("Waypoint update failed: " + (d.error || "?"));
+      else addLog(`Waypoint ${index + 1} updated`);
+    })
+    .catch(() => addLog("Waypoint update failed"));
 }
 
 function deleteWaypoint(index) {
+  if (clientRole !== "controller") {
+    addLog("Observer mode - waypoint editing disabled");
+    return;
+  }
   if (index < 0 || index >= waypoints.length) return;
 
-  // Remove that marker from map
   map.removeLayer(wpMarkers[index]);
   waypoints.splice(index, 1);
   wpMarkers.splice(index, 1);
 
-  // Tell backend
-  fetch(`/api/waypoints/${index}`, { method: "DELETE" })
-    .then(r => r.json())
-    .then(d => { if (!d.ok) addLog("Delete WP failed: " + (d.error || "?")); });
+  apiFetch(`/api/waypoints/${index}`, { method: "DELETE" })
+    .then((r) => r.json())
+    .then((d) => {
+      if (!d.ok) addLog("Delete WP failed: " + (d.error || "?"));
+    })
+    .catch(() => addLog("Delete WP failed"));
 
-  addLog(`Waypoint ${index + 1} deleted — remaining: ${waypoints.length}`);
+  addLog(`Waypoint ${index + 1} deleted - remaining: ${waypoints.length}`);
 
-  // If no waypoints left, switch UI back to manual
   if (waypoints.length === 0) {
     setMode("manual");
-    addLog("No waypoints remaining — switched to MANUAL");
+    addLog("No waypoints remaining - switched to MANUAL");
   }
 
-  // Re-number all remaining markers on map
   refreshAllMarkers();
   renderWaypointList();
+  updateRouteLines();
 }
 
 function clearWaypoints() {
-  wpMarkers.forEach(m => map.removeLayer(m));
-  waypoints = [];
-  wpMarkers = [];
-  fetch("/api/waypoints/clear", { method: "POST" });
+  if (clientRole !== "controller") {
+    addLog("Observer mode - waypoint editing disabled");
+    return;
+  }
+  clearLocalWaypoints();
+  apiFetch("/api/waypoints/clear", { method: "POST" });
   addLog("All waypoints cleared");
   renderWaypointList();
+  updateMissionStatus(lastVehicleState);
 }
 
 function updateMapMarker(lat, lng, heading, gps) {
@@ -153,6 +226,47 @@ function updateMapMarker(lat, lng, heading, gps) {
   trailPoints.push([lat, lng]);
   if (trailPoints.length > 500) trailPoints.shift();
   trailLine.setLatLngs(trailPoints);
+  updateRouteLines();
+}
+
+function updateRouteLines() {
+  if (!routeLine || !activeRouteLine) return;
+  routeLine.setLatLngs(waypoints.map((wp) => [wp.lat, wp.lng]));
+
+  if (!lastVehicleState || waypoints.length === 0) {
+    activeRouteLine.setLatLngs([]);
+    return;
+  }
+
+  const idx = Math.min(lastVehicleState.waypoint_index || 0, waypoints.length - 1);
+  const remaining = waypoints.slice(idx).map((wp) => [wp.lat, wp.lng]);
+  activeRouteLine.setLatLngs([[lastVehicleState.lat, lastVehicleState.lng], ...remaining]);
+}
+
+function updateMissionStatus(state) {
+  lastVehicleState = state || lastVehicleState;
+  const progress = document.getElementById("mission-progress");
+  const distance = document.getElementById("mission-distance");
+  const eta = document.getElementById("mission-eta");
+  if (!progress || !distance || !eta) return;
+
+  const total = waypoints.length;
+  const idx = Math.min(lastVehicleState?.waypoint_index ?? 0, total);
+  progress.textContent = `WP ${Math.min(idx + (total ? 1 : 0), total)}/${total}`;
+
+  if (!lastVehicleState || total === 0 || idx >= total) {
+    distance.textContent = "NEXT -- m";
+    eta.textContent = "ETA --";
+    return;
+  }
+
+  const wp = waypoints[idx];
+  const dist = haversineMeters(lastVehicleState.lat, lastVehicleState.lng, wp.lat, wp.lng);
+  distance.textContent = `NEXT ${dist < 1000 ? dist.toFixed(0) + " m" : (dist / 1000).toFixed(2) + " km"}`;
+
+  const speed = Math.max(Math.abs(lastVehicleState.speed || 0), 0.1);
+  eta.textContent = lastVehicleState.autonomous ? `ETA ${formatEta(dist / speed)}` : "ETA HOLD";
+  updateRouteLines();
 }
 
 function renderWaypointList() {
@@ -169,13 +283,29 @@ function renderWaypointList() {
     else if (i === currentIdx && currentMode === "auto") cls += " active-wp";
     return `<div class="${cls}">
       <span class="wp-index">${i + 1}</span>
-      <span style="flex:1">${wp.lat.toFixed(5)}, ${wp.lng.toFixed(5)}</span>
-      <button class="wp-del-btn" onclick="deleteWaypoint(${i})" title="Delete waypoint ${i + 1}">✕</button>
+      <span class="wp-coords">${wp.lat.toFixed(5)}, ${wp.lng.toFixed(5)}</span>
+      <button class="wp-del-btn" onclick="deleteWaypoint(${i})" title="Delete waypoint ${i + 1}">×</button>
     </div>`;
   }).join("");
 }
 
-// Refresh marker colors + list styling every second
+function haversineMeters(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const p1 = lat1 * Math.PI / 180;
+  const p2 = lat2 * Math.PI / 180;
+  const dp = (lat2 - lat1) * Math.PI / 180;
+  const dl = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatEta(seconds) {
+  if (!Number.isFinite(seconds)) return "--";
+  if (seconds < 60) return `${Math.ceil(seconds)}s`;
+  const mins = Math.ceil(seconds / 60);
+  return `${mins}m`;
+}
+
 setInterval(() => {
   refreshAllMarkers();
   renderWaypointList();

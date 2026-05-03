@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.Python
+.venv/
+venv/
+env/
+.env
+
+backend/battery_state.json
+
+node_modules/
+.DS_Store
+Thumbs.db

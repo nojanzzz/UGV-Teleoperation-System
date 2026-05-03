@@ -10,8 +10,6 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
-
-  <!-- TOP BAR -->
   <header class="topbar">
     <div class="topbar-left">
       <div class="logo">
@@ -23,6 +21,7 @@
     <div class="topbar-center">
       <div class="conn-indicator" id="conn-dot"></div>
       <span id="conn-label" class="conn-label">CONNECTING...</span>
+      <span id="conn-age" class="conn-age mono">-- ms</span>
     </div>
     <div class="topbar-right">
       <span class="mono" id="clock">--:--:--</span>
@@ -31,13 +30,8 @@
     </div>
   </header>
 
-  <!-- MAIN GRID -->
   <main class="grid">
-
-    <!-- LEFT COLUMN: Controls + Telemetry -->
     <aside class="panel panel-left">
-
-      <!-- Control mode -->
       <div class="panel-section">
         <div class="section-title">DRIVE MODE</div>
         <div class="mode-row">
@@ -46,7 +40,6 @@
         </div>
       </div>
 
-      <!-- Virtual joystick / key state -->
       <div class="panel-section">
         <div class="section-title">DIRECTIONAL INPUT</div>
         <div class="dpad-grid">
@@ -60,10 +53,17 @@
           <div class="dkey" id="key-s" title="S / Arrow Down">▼</div>
           <div></div>
         </div>
-        <div class="key-hint">WASD / Arrow keys — Space = E-STOP</div>
+        <div class="input-meta">
+          <span id="input-source">KEYBOARD READY</span>
+          <span class="mono">20 Hz CMD</span>
+        </div>
+        <div class="control-vector" aria-label="Throttle and steering vector">
+          <div class="vector-axis-x"></div>
+          <div class="vector-axis-y"></div>
+          <div class="vector-dot" id="vector-dot"></div>
+        </div>
       </div>
 
-      <!-- Throttle + Steering bars -->
       <div class="panel-section">
         <div class="section-title">ACTUATOR STATE</div>
         <div class="actuator-row">
@@ -82,11 +82,10 @@
         </div>
       </div>
 
-      <!-- Battery + System -->
       <div class="panel-section">
         <div class="section-title">POWER & SYSTEM</div>
         <div class="stat-grid">
-          <div class="stat-card">
+          <div class="stat-card stat-card-wide">
             <div class="stat-label">BATTERY</div>
             <div class="stat-val" id="stat-battery">100%</div>
             <div class="battery-bar-wrap"><div class="battery-bar" id="battery-bar"></div></div>
@@ -106,36 +105,35 @@
         </div>
       </div>
 
-      <!-- Recharge -->
-      <div class="panel-section">
-        <button class="recharge-btn" onclick="recharge()">⚡ RECHARGE BATTERY</button>
+      <div class="panel-section panel-actions">
+        <button class="recharge-btn" onclick="recharge()">RECHARGE BATTERY</button>
+        <button class="estop-btn" id="estop-btn" onclick="sendEstop()">EMERGENCY STOP</button>
+        <button class="release-btn" id="release-btn" onclick="releaseEstop()" style="display:none">RELEASE E-STOP</button>
       </div>
-
-      <!-- E-STOP -->
-      <div class="panel-section">
-        <button class="estop-btn" id="estop-btn" onclick="sendEstop()">
-          ⚠️ EMERGENCY STOP
-        </button>
-        <button class="release-btn" id="release-btn" onclick="releaseEstop()" style="display:none">
-          RELEASE E-STOP
-        </button>
-      </div>
-
     </aside>
 
-    <!-- CENTER: Camera + heading ring -->
     <section class="panel panel-center">
-      <div class="panel-section" style="flex:1">
-        <div class="section-title">CAMERA FEED — FPV</div>
+      <div class="panel-section camera-section">
+        <div class="section-title">CAMERA FEED - FPV</div>
         <div class="camera-wrap">
           <img id="camera-feed" src="/video/stream" alt="Camera Feed" />
+          <div id="fpv-scene" aria-label="3D UGV camera scene"></div>
+          <div class="camera-strip camera-strip-top">
+            <span id="cam-mode">MANUAL</span>
+            <span id="cam-link">LINK INIT</span>
+            <span id="cam-age">-- ms</span>
+          </div>
+          <div class="camera-strip camera-strip-bottom">
+            <span><b id="cam-speed">0.00</b> m/s</span>
+            <span><b id="cam-heading">0.0</b> deg</span>
+            <span><b id="cam-battery">100</b>%</span>
+          </div>
           <div class="camera-overlay" id="estop-overlay">
             <span>!! E-STOP ACTIVE !!</span>
           </div>
         </div>
       </div>
 
-      <!-- Speed + Heading -->
       <div class="bottom-hud">
         <div class="hud-block">
           <div class="hud-label">SPEED</div>
@@ -155,20 +153,20 @@
       </div>
     </section>
 
-    <!-- RIGHT COLUMN: Map + IMU -->
     <aside class="panel panel-right">
-
-      <!-- Map -->
-      <div class="panel-section" style="flex:1;min-height:0;overflow:hidden">
+      <div class="panel-section map-section">
         <div class="section-title">
           NAVIGATION MAP
-          <button class="map-clear-btn" onclick="clearWaypoints()">CLEAR WP</button>
+          <button class="map-clear-btn" onclick="clearWaypoints()" title="Clear all waypoints">CLEAR</button>
         </div>
         <div id="map"></div>
-        <div class="wp-hint">Click map to add waypoints</div>
+        <div class="mission-summary">
+          <span id="mission-progress">WP 0/0</span>
+          <span id="mission-distance">NEXT -- m</span>
+          <span id="mission-eta">ETA --</span>
+        </div>
       </div>
 
-      <!-- IMU -->
       <div class="panel-section">
         <div class="section-title">IMU TELEMETRY</div>
         <div class="imu-grid">
@@ -185,29 +183,37 @@
         </div>
       </div>
 
-      <!-- Waypoint list -->
-      <div class="panel-section" style="flex-shrink:0">
+      <div class="panel-section waypoint-section">
         <div class="section-title">WAYPOINT QUEUE</div>
         <div class="wp-list" id="wp-list">
           <div class="wp-empty">No waypoints set</div>
         </div>
       </div>
-
     </aside>
   </main>
 
-  <!-- LOG BAR -->
   <footer class="logbar">
     <span class="log-tag">LOG</span>
     <div class="log-scroll" id="log-scroll">
       <span id="log-msg">System initializing...</span>
     </div>
+    <button class="log-toggle" id="log-toggle" onclick="toggleLogDrawer()" title="Open event log">HISTORY</button>
   </footer>
 
+  <section class="log-drawer" id="log-drawer" aria-label="Event log">
+    <div class="log-drawer-head">
+      <span>EVENT HISTORY</span>
+      <button onclick="toggleLogDrawer()" title="Close event log">CLOSE</button>
+    </div>
+    <div class="log-drawer-list" id="log-drawer-list"></div>
+  </section>
+
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
   <script src="js/ws-client.js"></script>
   <script src="js/controls.js"></script>
   <script src="js/telemetry.js"></script>
   <script src="js/map.js"></script>
+  <script src="js/fpv-scene.js"></script>
 </body>
 </html>
